@@ -348,7 +348,7 @@ func generateJUnitReport(testSummariesPlistJson testSummariesPlistJson: JSON, lo
 
 // MARK: - Html
 //Generate html file from TestSummaries plist file from @logsTestPath logs test folder at path @htmlRepPath
-func generateHtmlReport(testSummariesPlistJson testSummariesPlistJson: JSON, logsTestPath: String, jUnitRepPath: String) {
+func generateHtmlReport(testSummariesPlistJson testSummariesPlistJson: JSON, logsTestPath: String, jUnitRepPath: String, lastScreenshotsPath: String) {
     let htmlPath = jUnitRepPath.stringByReplacingOccurrencesOfString(".xml", withString: ".html")
     print("Generate JUnit report xml file from \(logsTestPath) logs test folder to \(htmlPath) file")
     
@@ -440,12 +440,12 @@ func generateHtmlReport(testSummariesPlistJson testSummariesPlistJson: JSON, log
                     }
                     let testCaseNameNode = NSXMLElement(name: "h1", stringValue: testCaseName)
                     testCaseNode.addChild(testCaseNameNode)
-                    for index in 0...10 {
-                        let testIdentifier = testCaseJson[testIdentifierJsonPath].stringValue
-                        let prefix = "/\(testIdentifier.stringByReplacingOccurrencesOfString("/", withString: "_"))/"
-
+                    let testIdentifier = testCaseJson[testIdentifierJsonPath].stringValue
+                    let path = "\(lastScreenshotsPath)/\(testIdentifier.stringByReplacingOccurrencesOfString("/", withString: "_"))/"
+                    let count = try! fileManager.contentsOfDirectoryAtPath(path).count ?? 5
+                    for index in 0 ... count-1 {
                         let screenshotsNode = NSXMLElement(name: "img")
-                        let screenAttr = NSXMLNode.attributeWithName("src", stringValue: ".\(prefix)/\(index).png")  as! NSXMLNode
+                        let screenAttr = NSXMLNode.attributeWithName("src", stringValue: "\(path)\(index).png")  as! NSXMLNode
                         let widthAttr = NSXMLNode.attributeWithName("width", stringValue: "200")  as! NSXMLNode
                         screenshotsNode.attributes = [screenAttr, widthAttr]
                         testCaseNode.addChild(screenshotsNode)
@@ -552,7 +552,6 @@ if let jUnitReportPathOptionValue = jUnitReportPathOptionValue {
 
     generateJUnitReport(testSummariesPlistJson: testSummariesPlistJson, logsTestPath: logsTestPath, jUnitRepPath: jUnitReportPathOptionValue)
 }
-
 // save the last screenshots if --screenshotsPath option is passed
 if let screenshotsPathOptionValue = screenshotsPathOptionValue {
     argumentOptionsParser.validateOptionIsNotEmpty(optionName: screenshotsPathOption, optionValue: screenshotsPathOptionValue)
@@ -565,5 +564,5 @@ if let screenshotsPathOptionValue = screenshotsPathOptionValue {
 if let htmlReportPathOptionValue = jUnitReportPathOptionValue {
     argumentOptionsParser.validateOptionIsNotEmpty(optionName: jUnitReportPathOption, optionValue: htmlReportPathOptionValue)
     
-    generateHtmlReport(testSummariesPlistJson: testSummariesPlistJson, logsTestPath: logsTestPath, jUnitRepPath: htmlReportPathOptionValue)
+    generateHtmlReport(testSummariesPlistJson: testSummariesPlistJson, logsTestPath: logsTestPath, jUnitRepPath: htmlReportPathOptionValue, lastScreenshotsPath: screenshotsPathOptionValue!)
 }
