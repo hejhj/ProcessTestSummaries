@@ -346,6 +346,160 @@ func generateJUnitReport(testSummariesPlistJson testSummariesPlistJson: JSON, lo
     }
 }
 
+// MARK: - Html
+//Generate html file from TestSummaries plist file from @logsTestPath logs test folder at path @htmlRepPath
+func generateHtmlReport(testSummariesPlistJson testSummariesPlistJson: JSON, logsTestPath: String, jUnitRepPath: String) {
+    let htmlPath = jUnitRepPath.stringByReplacingOccurrencesOfString(".xml", withString: ".html")
+    print("Generate JUnit report xml file from \(logsTestPath) logs test folder to \(htmlPath) file")
+    
+    // create the needed path for saving the report
+    var pathTokens = jUnitRepPath.componentsSeparatedByString("/")
+    let reportFileName = pathTokens.count > 0 ? pathTokens.removeLast() : ""
+    if reportFileName.isEmpty {
+        try! CustomErrorType.InvalidArgument(error: "\(htmlPath) JUnit report path has an empty filename.").throwsError()
+    }
+    let fileManager = NSFileManager.defaultManager()
+    let jUnitRepParentDir = jUnitRepPath.stringByReplacingOccurrencesOfString("/" + reportFileName, withString: "")
+    createFolderOrEmptyIfExistsAtPath(jUnitRepParentDir, emptyPath: false)
+    let testsCrashLogsPath = jUnitRepParentDir + "/CrashLogs/"
+    let crashLogsPath = logsTestPath + "/Attachments/"
+    
+    // parse the TestSummaries plist file and create the JUnit xml document
+    let testSuitesNode = NSXMLElement(name: "testsuites")
+    let jUnitXml = NSXMLDocument(rootElement: testSuitesNode)
+    
+    let testableSummariesJsonPath: [SubscriptType] = ["TestableSummaries"]
+    let testSuitesJsonPath: [SubscriptType] = ["^", "Tests", ".", "Subtests", ".", "Subtests", "."]
+    let subtestsJsonPath: [SubscriptType] = ["Subtests"]
+    let targetNameJsonPath: [SubscriptType] = ["TargetName"]
+    let testNameJsonPath: [SubscriptType] = ["TestName"]
+    let testIdentifierJsonPath: [SubscriptType] = ["TestIdentifier"]
+    let testStatusJsonPath: [SubscriptType] = ["TestStatus"]
+    let failureSummariesJsonPath: [SubscriptType] = ["FailureSummaries"]
+    let activitySummariesJsonPath: [SubscriptType] = ["ActivitySummaries"]
+    let titleJsonPath: [SubscriptType] = ["Title"]
+    let messageJsonPath: [SubscriptType] = ["Message"]
+    let startTimeIntervalJsonPath: [SubscriptType] = ["StartTimeInterval"]
+    let finishTimeIntervalJsonPath: [SubscriptType] = ["FinishTimeInterval"]
+    let fileNameJsonPath: [SubscriptType] = ["FileName"]
+    let lineNumberJsonPath: [SubscriptType] = ["LineNumber"]
+    let hasDiagnosticReportDataJsonPath: [SubscriptType] = ["HasDiagnosticReportData"]
+    let diagnosticReportFileNameJsonPath: [SubscriptType] = ["DiagnosticReportFileName"]
+    let uuidJsonPath: [SubscriptType] = ["UUID"]
+    
+    let testableSummariesJsons = testSummariesPlistJson[testableSummariesJsonPath].arrayValue
+    var totalTestsCount = 0
+    var totalFailuresCount = 0
+    for testableSummaryJson in testableSummariesJsons {
+        let targetName = testableSummaryJson[targetNameJsonPath].stringValue
+        let testSuitesJsons = testableSummaryJson.values(relativePath: testSuitesJsonPath)
+        
+        for testSuitesJson in testSuitesJsons {
+            let testSuiteNode = NSXMLElement(name: "testsuite")
+            
+            let testSuiteName = targetName + "." + testSuitesJson[testNameJsonPath].stringValue
+            let testCasesJsons = testSuitesJson[subtestsJsonPath].arrayValue
+            var failuresCount = 0
+            for testCaseJson in testCasesJsons {
+                let testCaseNode = NSXMLElement(name: "testcase")
+                let testCaseName = testCaseJson[testNameJsonPath].stringValue.stringByReplacingOccurrencesOfString("()", withString: "")
+                let testCaseStatus =  testCaseJson[testStatusJsonPath].stringValue
+                
+                var time = "0"
+                let activitySummariesJson = testCaseJson[activitySummariesJsonPath]
+                if testCaseStatus != "Success" {
+                    failuresCount += 1
+                    var failureStackTrace = ""
+                    var failureMessage = ""
+                    let failureSummariesJson = testCaseJson[failureSummariesJsonPath]
+                    if failureSummariesJson.arrayValue.count > 0 {
+                        let firstFailureSummaryJson = failureSummariesJson[0]
+                        failureMessage = validXMLString(firstFailureSummaryJson[messageJsonPath].stringValue)
+                        var fileName = firstFailureSummaryJson[fileNameJsonPath].stringValue
+                        let rangeToRemove = fileName.rangeOfString(targetName + "/")
+                        fileName.replaceRange(fileName.startIndex..<(rangeToRemove?.startIndex ?? fileName.startIndex), with: "")
+                        let lineNumber = firstFailureSummaryJson[lineNumberJsonPath].intValue
+                        failureStackTrace = fileName + ":" + String(lineNumber)
+                    }
+                    let crashSummaries: [JSON] = activitySummariesJson.getParentValuesFor(relativePath: hasDiagnosticReportDataJsonPath, withValue: JSON(true))
+                    // if we have a crash log for the current test, save it
+                    if crashSummaries.count > 0 {
+                        let crashSummary = crashSummaries[0]
+                        let crashFilename = crashSummary[diagnosticReportFileNameJsonPath].stringValue.stringByReplacingOccurrencesOfString(".crash", withString: "") + "_" + crashSummary[uuidJsonPath].stringValue + ".crash"
+                        let testIdentifier = testCaseJson[testIdentifierJsonPath].stringValue
+                        let savedCrashLogName = testIdentifier.stringByReplacingOccurrencesOfString("/", withString: "_").stringByReplacingOccurrencesOfString("()", withString: "") + ".crash.txt"
+                        let newTestCrashLogFile = testsCrashLogsPath + savedCrashLogName
+                        createFolderOrEmptyIfExistsAtPath(testsCrashLogsPath)
+                        let crashLogsFile = crashLogsPath + crashFilename
+                        do {
+                            try fileManager.copyItemAtPath(crashLogsFile, toPath: newTestCrashLogFile)
+                        } catch let e {
+                            try! CustomErrorType.InvalidState(error: "Error when copying \(crashLogsFile) file to \(newTestCrashLogFile) : \(e)").throwsError()
+                        }
+                        print("Saved the crash to path: \(newTestCrashLogFile)")
+                    }
+                    let testCaseNameNode = NSXMLElement(name: "h1", stringValue: testCaseName)
+                    testCaseNode.addChild(testCaseNameNode)
+                    for index in 0...10 {
+                        let testIdentifier = testCaseJson[testIdentifierJsonPath].stringValue
+                        let prefix = "/\(testIdentifier.stringByReplacingOccurrencesOfString("/", withString: "_"))/"
+
+                        let screenshotsNode = NSXMLElement(name: "img")
+                        let screenAttr = NSXMLNode.attributeWithName("src", stringValue: ".\(prefix)/\(index).png")  as! NSXMLNode
+                        let widthAttr = NSXMLNode.attributeWithName("width", stringValue: "200")  as! NSXMLNode
+                        screenshotsNode.attributes = [screenAttr, widthAttr]
+                        testCaseNode.addChild(screenshotsNode)
+                    }
+                    let lineBreak = NSXMLElement(name: "h2", stringValue: failureStackTrace)
+                    testCaseNode.addChild(lineBreak)
+                    let failureNode = NSXMLElement(name: "failure", stringValue: failureStackTrace)
+                    
+                    let messageAttr = NSXMLNode.attributeWithName("message", stringValue: failureMessage)  as! NSXMLNode
+                    failureNode.attributes = [messageAttr]
+                    testCaseNode.addChild(failureNode)
+                }
+                if activitySummariesJson.arrayValue.count > 0 {
+                    let startTime = Double(activitySummariesJson.arrayValue[0][startTimeIntervalJsonPath].stringValue) ?? 0.0
+                    let lastActivitySummaryJson = activitySummariesJson.arrayValue[activitySummariesJson.count - 1]
+                    var finishTimeIntervalJsons = lastActivitySummaryJson.values(relativePath: finishTimeIntervalJsonPath)
+                    var finishTimeIntervalJson = finishTimeIntervalJsons.count > 0 ? finishTimeIntervalJsons[finishTimeIntervalJsons.count - 1] : JSON.nullJSON
+                    if finishTimeIntervalJsons.count == 0 {
+                        finishTimeIntervalJsons = lastActivitySummaryJson.values(relativePath: startTimeIntervalJsonPath)
+                        finishTimeIntervalJson = finishTimeIntervalJsons.count > 0 ? finishTimeIntervalJsons[finishTimeIntervalJsons.count - 1] : JSON.nullJSON
+                    }
+                    let endTime = Double(finishTimeIntervalJson.stringValue) ?? 0.0
+                    time = String(format: "%.3f", endTime - startTime)
+                }
+                
+                let classnameAttr = NSXMLNode.attributeWithName("classname", stringValue: testSuiteName)  as! NSXMLNode
+                let nameAttr = NSXMLNode.attributeWithName("name", stringValue: testCaseName) as! NSXMLNode
+                let timeAttr = NSXMLNode.attributeWithName("time", stringValue: time) as! NSXMLNode
+                testCaseNode.attributes = [classnameAttr, nameAttr, timeAttr]
+                testSuiteNode.addChild(testCaseNode)
+            }
+            totalTestsCount += testCasesJsons.count
+            totalFailuresCount += failuresCount
+            
+            let testSuiteNameAttr = NSXMLNode.attributeWithName("name", stringValue: testSuiteName)  as! NSXMLNode
+            let testSuiteTestsAttr = NSXMLNode.attributeWithName("tests", stringValue:  String(testCasesJsons.count)) as! NSXMLNode
+            let testSuiteFailuresAttr = NSXMLNode.attributeWithName("failures", stringValue: String(failuresCount)) as! NSXMLNode
+            testSuiteNode.attributes = [testSuiteNameAttr, testSuiteTestsAttr, testSuiteFailuresAttr]
+            testSuitesNode.addChild(testSuiteNode)
+        }
+    }
+    
+    let testSuitesTestsAttr = NSXMLNode.attributeWithName("tests", stringValue: String(totalTestsCount))  as! NSXMLNode
+    let testSuitesFailuresAttr = NSXMLNode.attributeWithName("failures", stringValue: String(totalFailuresCount)) as! NSXMLNode
+    testSuitesNode.attributes = [testSuitesTestsAttr, testSuitesFailuresAttr]
+    
+    // finally, save the xml report
+    jUnitXml.documentContentKind = NSXMLDocumentContentKind.HTMLKind
+    let xmlData = jUnitXml.XMLDataWithOptions(Int(NSXMLNodeOptions.NodePrettyPrint.rawValue))
+    if !xmlData.writeToFile(htmlPath, atomically: false) {
+        try! CustomErrorType.InvalidArgument(error: "Writing xml data to file \(htmlPath) failed!").throwsError()
+    }
+}
+
 
 // ====== main ======
 
@@ -367,6 +521,7 @@ var parsedOptions = argumentOptionsParser.parseArgs()
 print("Parsed options: \(parsedOptions)")
 let logsTestPathOptionValue = parsedOptions[logsTestPathOption]
 let jUnitReportPathOptionValue = parsedOptions[jUnitReportPathOption]
+let htmlReportPathOptionValue = parsedOptions[jUnitReportPathOption]
 let screenshotsPathOptionValue = parsedOptions[screenshotsPathOption]
 let screenshotsCountOptionValue = parsedOptions[screenshotsCountOption]
 let excludeIdenticalScreenshotsOptionValue = parsedOptions[excludeIdenticalScreenshotsOption]
@@ -403,4 +558,12 @@ if let screenshotsPathOptionValue = screenshotsPathOptionValue {
     argumentOptionsParser.validateOptionIsNotEmpty(optionName: screenshotsPathOption, optionValue: screenshotsPathOptionValue)
     
     saveLastScreenshots(testSummariesPlistJson: testSummariesPlistJson, logsTestPath: logsTestPath, lastScreenshotsPath: screenshotsPathOptionValue, screenshotsCount: screenshotsCount, excludeIdenticalScreenshots: excludeIdenticalScreenshots)
+}
+
+// MARK: - Html Report
+// generate the report if --jUnitReportPath option is passed
+if let htmlReportPathOptionValue = jUnitReportPathOptionValue {
+    argumentOptionsParser.validateOptionIsNotEmpty(optionName: jUnitReportPathOption, optionValue: htmlReportPathOptionValue)
+    
+    generateHtmlReport(testSummariesPlistJson: testSummariesPlistJson, logsTestPath: logsTestPath, jUnitRepPath: htmlReportPathOptionValue)
 }
