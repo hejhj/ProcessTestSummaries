@@ -142,7 +142,7 @@ private func getTestSummariesPlistJson(logsTestPath logsTestPath: String) -> JSO
 /// Save the last @screenshotsCount screenshots to @lastScreenshotsPath folder from @logsTestPath test logs for failed tests
 /// if screenshotsCount is -1 then save all screenshots available
 /// - parameter excludeIdenticalScreenshots: excludes the consecutive identical screenshots, to get the relevant screenshots
-func saveLastScreenshots(testSummariesPlistJson testSummariesPlistJson: JSON, logsTestPath: String, lastScreenshotsPath: String, screenshotsCount: Int, excludeIdenticalScreenshots: Bool = false) {
+func saveLastScreenshots(testSummariesPlistJson testSummariesPlistJson: JSON, logsTestPath: String, lastScreenshotsPath: String, screenshotsCount: Int, excludeIdenticalScreenshots: Bool = false, saveAll: Bool = false) {
     print("Save last \(screenshotsCount) screenshots from \(logsTestPath) logs test folder to \(lastScreenshotsPath) folder")
     if logsTestPath.isEmpty {
         try! CustomErrorType.InvalidArgument(error: "Tests logs path is empty.").throwsError()
@@ -156,14 +156,14 @@ func saveLastScreenshots(testSummariesPlistJson testSummariesPlistJson: JSON, lo
     let testJsonPath: [SubscriptType] = ["^", "TestableSummaries", ".", "Tests", ".", "Subtests", ".", "Subtests", ".", "Subtests", "."]
     let testStatusJsonPath: [SubscriptType] = testJsonPath + ["TestStatus"]
     let testIdentifierJsonPath: [SubscriptType] = ["TestIdentifier"]
-    // extract the failed test nodes for finding the test screenshots
-    let failedTests = testSummariesPlistJson.getParentValuesFor(relativePath: testStatusJsonPath, withValue: JSON("Failure"))
-    for failedTestNode in failedTests {
-        let testIdentifier = failedTestNode[testIdentifierJsonPath].stringValue
+    // extract test nodes for finding the test screenshots
+    let tests = testSummariesPlistJson.getParentValuesFor(relativePath: testStatusJsonPath)
+    for testNode in tests {
+        let testIdentifier = testNode[testIdentifierJsonPath].stringValue
         let testLastScreenShotsPath = lastScreenshotsPath + "/\(testIdentifier.stringByReplacingOccurrencesOfString("/", withString: "_"))/"
 
         // extract the last screenshotsCount screenshots filenames of the test
-        var screenshotNodes = failedTestNode.getParentValuesFor(relativePath: ["HasScreenshotData"], withValue: JSON(true))
+        var screenshotNodes = testNode.getParentValuesFor(relativePath: ["HasScreenshotData"], withValue: JSON(true))
         // if screenshotsCount param is -1 then save all screenshots
         let screenshotsCount = screenshotsCount == -1 ? screenshotNodes.count : screenshotsCount
         var screenshotsFiles = [String]()
@@ -491,12 +491,20 @@ func generateHtmlReport(testSummariesPlistJson testSummariesPlistJson: JSON, log
     let testSuitesTestsAttr = NSXMLNode.attributeWithName("tests", stringValue: String(totalTestsCount))  as! NSXMLNode
     let testSuitesFailuresAttr = NSXMLNode.attributeWithName("failures", stringValue: String(totalFailuresCount)) as! NSXMLNode
     testSuitesNode.attributes = [testSuitesTestsAttr, testSuitesFailuresAttr]
+    let testSummaryTitle = NSXMLElement(name: "H1", stringValue: "Test Summary")
+    testSuitesNode.addChild(testSummaryTitle)
+
+    let resultsTable = [
+        ["Test Suite", "Tests", "Failures"],
+        ["All suites", "\(totalTestsCount)", "\(totalFailuresCount)"]
+    ]
+    testSuitesNode.addChild(MarkupHelper.createTable(resultsTable).getMarkup())
     
-    // finally, save the xml report
+    // finally, save the html report
     jUnitXml.documentContentKind = NSXMLDocumentContentKind.HTMLKind
     let xmlData = jUnitXml.XMLDataWithOptions(Int(NSXMLNodeOptions.NodePrettyPrint.rawValue))
     if !xmlData.writeToFile(htmlPath, atomically: false) {
-        try! CustomErrorType.InvalidArgument(error: "Writing xml data to file \(htmlPath) failed!").throwsError()
+        try! CustomErrorType.InvalidArgument(error: "Writing html data to file \(htmlPath) failed!").throwsError()
     }
 }
 
@@ -507,11 +515,13 @@ func generateHtmlReport(testSummariesPlistJson testSummariesPlistJson: JSON, log
 let logsTestPathOption = "logsTestPath"
 let jUnitReportPathOption = "jUnitReportPath"
 let screenshotsPathOption = "screenshotsPath"
+let screenshotsSaveAllOption = "saveAllScreenshots"
 let screenshotsCountOption = "screenshotsCount"
 let excludeIdenticalScreenshotsOption = "excludeIdenticalScreenshots"
 let options: [String: String] = [
     logsTestPathOption: " logs test path",
     jUnitReportPathOption: "JUnit report Path",
+    screenshotsSaveAllOption: "Save all screenshots",
     screenshotsPathOption: "last screenshots path",
     screenshotsCountOption: "last screenshots count",
     excludeIdenticalScreenshotsOption: "exclude the consecutive identical screenshots"
@@ -522,6 +532,7 @@ print("Parsed options: \(parsedOptions)")
 let logsTestPathOptionValue = parsedOptions[logsTestPathOption]
 let jUnitReportPathOptionValue = parsedOptions[jUnitReportPathOption]
 let htmlReportPathOptionValue = parsedOptions[jUnitReportPathOption]
+let screenshotsSaveAllOptionValue = parsedOptions[screenshotsSaveAllOption]
 let screenshotsPathOptionValue = parsedOptions[screenshotsPathOption]
 let screenshotsCountOptionValue = parsedOptions[screenshotsCountOption]
 let excludeIdenticalScreenshotsOptionValue = parsedOptions[excludeIdenticalScreenshotsOption]
@@ -543,6 +554,9 @@ if let screenshotsCountOptionValue = screenshotsCountOptionValue {
 // exclude the consecutive identical screenshots if --excludeIdenticalScreenshots option is present
 var excludeIdenticalScreenshots = excludeIdenticalScreenshotsOptionValue != nil
 
+// save all screenshots if --saveAllScreenshots option is present
+var saveAll = screenshotsSaveAllOptionValue != nil
+
 let logsTestPath = logsTestPathOptionValue!
 let testSummariesPlistJson = getTestSummariesPlistJson(logsTestPath: logsTestPath)
 
@@ -556,7 +570,7 @@ if let jUnitReportPathOptionValue = jUnitReportPathOptionValue {
 if let screenshotsPathOptionValue = screenshotsPathOptionValue {
     argumentOptionsParser.validateOptionIsNotEmpty(optionName: screenshotsPathOption, optionValue: screenshotsPathOptionValue)
     
-    saveLastScreenshots(testSummariesPlistJson: testSummariesPlistJson, logsTestPath: logsTestPath, lastScreenshotsPath: screenshotsPathOptionValue, screenshotsCount: screenshotsCount, excludeIdenticalScreenshots: excludeIdenticalScreenshots)
+    saveLastScreenshots(testSummariesPlistJson: testSummariesPlistJson, logsTestPath: logsTestPath, lastScreenshotsPath: screenshotsPathOptionValue, screenshotsCount: screenshotsCount, excludeIdenticalScreenshots: excludeIdenticalScreenshots, saveAll: saveAll)
 }
 
 // MARK: - Html Report

@@ -160,12 +160,17 @@ extension JSON {
     /// Get the json parents for the values found using the relative path @relativePath
     /// - parameter relativePath: The target json's relative path
     /// - parameter value: the json value from relative path @relativePath
-    public func getParentValuesFor(relativePath relativePath: [SubscriptType], withValue value: JSON) -> [JSON] {
+    public func getParentValuesFor(relativePath relativePath: [SubscriptType], withValue value: JSON = JSON("Failure")) -> [JSON] {
         let absolutePaths = paths(relativePath: relativePath)
-        let filteredAbsolutePaths = absolutePaths.filter({ (path) -> Bool in
-            return self[path] == value
-        })
-        let parentAbsolutePaths = filteredAbsolutePaths.map { (path) -> [SubscriptType] in
+        var targetPath: [[SubscriptType]]
+        if saveAll {
+             targetPath = absolutePaths
+        } else {
+            targetPath = absolutePaths.filter({ (path) -> Bool in
+                return self[path] == value
+            })
+        }
+        let parentAbsolutePaths = targetPath.map { (path) -> [SubscriptType] in
             var path = path
             if path.count == 0 {
                 return []
