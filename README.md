@@ -14,7 +14,7 @@ This tool is an OS X console application which processes the TestSummaries plist
 ## Usage e.g:
 xcodebuild -derivedDataPath $DERIVED_DATA_PATH test
 
-ProcessTestSummaries --logsTestPath $DERIVED_DATA_PATH/Logs/Test --jUnitReportPath $REPORTS_PATH/unitTestResult.xml --screenshotsPath $LAST_SCREENSHOTS_PATH --screenshotsCount 10 --excludeIdenticalScreenshots
+ProcessTestSummaries --logsTestPath $DERIVED_DATA_PATH/Logs/Test --jUnitReportPath $REPORTS_PATH/unitTestResult.xml --screenshotsPath $LAST_SCREENSHOTS_PATH --screenshotsCount 10 --excludeIdenticalScreenshots --saveAllScreenshots
 
 ## IDE, source code language supported:
 Xcode 8, Swift 2.3
